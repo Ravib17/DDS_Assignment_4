@@ -9,15 +9,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-
+	
 	"github.com/otoolep/hraftd/http"
 	"github.com/otoolep/hraftd/store"
 )
 
 // Command line defaults
 const (
-	DefaultHTTPAddr = ":11000"
-	DefaultRaftAddr = ":12000"
+	Defaultcid = "1"
 )
 
 // Command line parameters
@@ -26,12 +25,17 @@ var httpAddr string
 var raftAddr string
 var joinAddr string
 var nodeID string
-
+var dbPort string
+var cnode string 
+var cid string 
 func init() {
 	flag.BoolVar(&inmem, "inmem", false, "Use in-memory storage for Raft")
-	flag.StringVar(&httpAddr, "haddr", DefaultHTTPAddr, "Set the HTTP bind address")
-	flag.StringVar(&raftAddr, "raddr", DefaultRaftAddr, "Set Raft bind address")
+	flag.StringVar(&httpAddr, "haddr", "", "Set the HTTP bind address")
+	flag.StringVar(&raftAddr, "raddr", "", "Set Raft bind address")
+	flag.StringVar(&cnode, "cnode", "", "Set connecting node address")
+	flag.StringVar(&cid, "cid", Defaultcid, "Set cluster id of node")
 	flag.StringVar(&joinAddr, "join", "", "Set join address, if any")
+	flag.StringVar(&dbPort, "dbport", "", "DB port ")
 	flag.StringVar(&nodeID, "id", "", "Node ID")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] <raft-data-path> \n", os.Args[0])
@@ -48,6 +52,12 @@ func main() {
 	}
 
 	// Ensure Raft storage exists.
+
+	if dbPort == "" {
+		fmt.Fprintf(os.Stderr, "Mongodb port is not  specified properly\n")
+		os.Exit(1)
+	}
+
 	raftDir := flag.Arg(0)
 	if raftDir == "" {
 		fmt.Fprintf(os.Stderr, "No Raft storage directory specified\n")
@@ -55,9 +65,11 @@ func main() {
 	}
 	os.MkdirAll(raftDir, 0700)
 
-	s := store.New(inmem)
+	s := store.New(inmem,dbPort)
 	s.RaftDir = raftDir
 	s.RaftBind = raftAddr
+	s.Cnode = cnode
+	s.Cid = cid
 	if err := s.Open(joinAddr == "", nodeID); err != nil {
 		log.Fatalf("failed to open store: %s", err.Error())
 	}

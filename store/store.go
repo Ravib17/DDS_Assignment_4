@@ -20,6 +20,11 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/raft-boltdb"
+	"go.mongodb.org/mongo-driver/mongo"
+	 "net/http"
+	 "bytes"
+	 "strconv"
+    
 )
 
 const (
@@ -29,8 +34,7 @@ const (
 
 type command struct {
 	Op    string `json:"op,omitempty"`
-	Key   string `json:"key,omitempty"`
-	Value string `json:"value,omitempty"`
+	data string
 }
 
 // Store is a simple key-value store, where all changes are made via Raft consensus.
@@ -38,21 +42,34 @@ type Store struct {
 	RaftDir  string
 	RaftBind string
 	inmem    bool
-
+	dbobject *dbObject
 	mu sync.Mutex
 	m  map[string]string // The key-value store for the system.
-
+	dbport string
+	Cid string
+	Cnode string
 	raft *raft.Raft // The consensus mechanism
-
+	collection *mongo.Collection
 	logger *log.Logger
+
 }
 
 // New returns a new Store.
-func New(inmem bool) *Store {
+func New(inmem bool , dbport string) *Store {
+     dbo := newdbConeection(dbport)
+     fmt.Print("create db object")
+     collection:= dbo.createCollection("abc","pqr")
+     //  data := []byte(`{"a":"m", "c":5, "d": ["e", "f"]}`)
+     // dbobject.insertData(data,collection)
+     
+   
+   
 	return &Store{
 		m:      make(map[string]string),
 		inmem:  inmem,
 		logger: log.New(os.Stderr, "[store] ", log.LstdFlags),
+		collection : collection,
+		dbobject : dbo,
 	}
 }
 
@@ -118,50 +135,123 @@ func (s *Store) Open(enableSingle bool, localID string) error {
 }
 
 // Get returns the value for the given key.
-func (s *Store) Get(key string) (string, error) {
+func (s *Store) Get(key string) ([]map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.m[key], nil
+	data1 := s.dbobject.getData(key,s.collection)
+	// data2, _ := http.Get("http://127.0.0.1:"+string(s.Cnode)+"/key/"+key)
+	
+	return data1, nil
 }
 
 // Set sets the value for the given key.
-func (s *Store) Set(key, value string) error {
-	if s.raft.State() != raft.Leader {
-		return fmt.Errorf("not leader")
-	}
+func (s *Store) Set(data map[string]interface{} ) error {
+	
 
+	if s.raft.State() != raft.Leader {
+		
+    	   postBody, _ := json.Marshal(data)
+		   responseBody := bytes.NewBuffer(postBody)
+		   i, err := strconv.Atoi(string(s.raft.Leader())[1:])
+		   i = i - 1000
+		   p := strconv.Itoa(i)
+
+		   resp, err := http.Post("http://127.0.0.1:"+string(p)+"/key", "application/json", responseBody)
+		   	fmt.Printf("http://127.0.0.1:"+string(p)+"/key")
+		   if err != nil {
+		   	fmt.Print(err)
+		      return err
+		   }
+		   fmt.Print(resp)
+		   return err
+	}
+	loc := data["address"].(map[string]interface{})
+	if (s.Cid == "1" && loc["city"] == "Banglore") || ( s.Cid == "2" && loc["city"] == "Hyderabad")  {
+
+		  postBody, _ := json.Marshal(data)
+		   responseBody := bytes.NewBuffer(postBody)
+		   p := s.Cnode
+
+		   resp, err := http.Post("http://127.0.0.1:"+string(p)+"/key", "application/json", responseBody)
+		   	fmt.Printf("http://127.0.0.1:"+string(p)+"/key")
+		   if err != nil {
+		   	fmt.Print(err)
+		      return err
+		   }
+		   fmt.Print(resp)
+		   return err
+
+	} 
+	data["op"]="set"
+	d , err := json.Marshal(data)
+	e:= string(d)
+	fmt.Printf(e)
 	c := &command{
 		Op:    "set",
-		Key:   key,
-		Value: value,
+		data: `{'name':'abc'}`,
+
 	}
-	b, err := json.Marshal(c)
+	fmt.Printf(c.data)
+	b, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
-
+	fmt.Print("\n\n\n")
+	fa := make(map[string]interface{})
+	json.Unmarshal(b, &fa);
+	
+	fmt.Print(fa)
+	fmt.Print("\n")
 	f := s.raft.Apply(b, raftTimeout)
 	return f.Error()
 }
 
 // Delete deletes the given key.
-func (s *Store) Delete(key string) error {
+func (s *Store) Delete(key1 string,key2 string) error {
+
+	fmt.Println("In Delete")
+	if s.raft.State() != raft.Leader {
+		
+
+	// Create request
+	i, err := strconv.Atoi(string(s.raft.Leader())[1:])
+	i = i - 1000
+	p := strconv.Itoa(i)
+    client := &http.Client{}
+	req, err := http.NewRequest("DELETE","http://127.0.0.1:"+string(p)+"/key"+"/"+key1+"/"+key2,nil)
+
+    resp, err := client.Do(req)
+    if err != nil {
+        fmt.Println(err)
+        return err
+    }
+    defer resp.Body.Close()
+	return err
+   }
+	dataobj := make(map[string]interface{})
+	dataobj["name"] = key1
+	dataobj["city"]=key2
 	if s.raft.State() != raft.Leader {
 		return fmt.Errorf("not leader")
 	}
-
-	c := &command{
-		Op:  "delete",
-		Key: key,
-	}
-	b, err := json.Marshal(c)
+	dataobj["op"]="delete"
+	d , err := json.Marshal(dataobj)
+	e:= string(d)
+	fmt.Printf(e)
+	b, err := json.Marshal(dataobj)
 	if err != nil {
 		return err
 	}
-
+	fmt.Print("\n\n\n")
+	fa := make(map[string]interface{})
+	json.Unmarshal(b, &fa);
+	
+	fmt.Print(fa)
+	fmt.Print("\n")
 	f := s.raft.Apply(b, raftTimeout)
 	return f.Error()
 }
+
 
 // Join joins a node, identified by nodeID and located at addr, to this store.
 // The node must be ready to respond to Raft communications at that address.
@@ -204,18 +294,23 @@ type fsm Store
 
 // Apply applies a Raft log entry to the key-value store.
 func (f *fsm) Apply(l *raft.Log) interface{} {
-	var c command
+	c:= make(map[string]interface{})
 	if err := json.Unmarshal(l.Data, &c); err != nil {
 		panic(fmt.Sprintf("failed to unmarshal command: %s", err.Error()))
 	}
-
-	switch c.Op {
+	fmt.Print("check\n")
+ 	fmt.Print(c["op"].(string))
+ 	fmt.Print("done\n")
+ 	
+	val := c["op"].(string)
+	fmt.Print(val)
+	switch val {
 	case "set":
-		return f.applySet(c.Key, c.Value)
+		return f.applySet(c)
 	case "delete":
-		return f.applyDelete(c.Key)
+		return f.applyDelete(c)
 	default:
-		panic(fmt.Sprintf("unrecognized command op: %s", c.Op))
+		panic(fmt.Sprintf("unrecognized command op: %s", c["Op"]))
 	}
 }
 
@@ -245,17 +340,19 @@ func (f *fsm) Restore(rc io.ReadCloser) error {
 	return nil
 }
 
-func (f *fsm) applySet(key, value string) interface{} {
+func (f *fsm) applySet(data map[string]interface{}) interface{} {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.m[key] = value
+	fmt.Print("\n\n\n\n adsfssfdf \n\n]n")
+	f.dbobject.insertData(data,f.collection)
 	return nil
 }
 
-func (f *fsm) applyDelete(key string) interface{} {
+func (f *fsm) applyDelete(data map[string]interface{}) interface{} {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.m, key)
+	fmt.Println("Dataaaaa")
+	f.dbobject.deleteData(data,f.collection)
 	return nil
 }
 

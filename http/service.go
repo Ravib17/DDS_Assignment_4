@@ -9,18 +9,19 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"fmt"
 )
 
 // Store is the interface Raft-backed key-value stores must implement.
 type Store interface {
 	// Get returns the value for the given key.
-	Get(key string) (string, error)
+	Get(key string) ([]map[string]interface{}, error)
 
 	// Set sets the value for the given key, via distributed consensus.
-	Set(key, value string) error
+	Set(data map[string]interface{}) error
 
 	// Delete removes the given key, via distributed consensus.
-	Delete(key string) error
+	Delete(key1 string,key2 string) error
 
 	// Join joins the node, identitifed by nodeID and reachable at addr, to the cluster.
 	Join(nodeID string, addr string) error
@@ -121,9 +122,20 @@ func (s *Service) handleKeyRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		return parts[2]
 	}
+	deleteKey := func() (string,string){
+		parts := strings.Split(r.URL.Path, "/")
+		fmt.Println(parts)
+		if len(parts) != 4 {
+			return "",""
+		}
+		fmt.Println(parts[2])
+		fmt.Println(parts[3])
+		return parts[2],parts[3]
+	}
 
 	switch r.Method {
 	case "GET":
+		fmt.Println(" In get xcxgxgxxxxxxxxxxxxxxx ")
 		k := getKey()
 		if k == "" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -132,9 +144,8 @@ func (s *Service) handleKeyRequest(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
-		}
-
-		b, err := json.Marshal(map[string]string{k: v})
+		}   
+		b, err := json.Marshal(v)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -144,29 +155,31 @@ func (s *Service) handleKeyRequest(w http.ResponseWriter, r *http.Request) {
 
 	case "POST":
 		// Read the value from the POST body.
-		m := map[string]string{}
+		fmt.Print("\n\n\n\n in post \n\n")
+		m := make(map[string]interface{})
 		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			fmt.Print("\n\n\n\n Error post \n\n")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		for k, v := range m {
-			if err := s.store.Set(k, v); err != nil {
+		
+			if err := s.store.Set(m); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
-			}
+			
 		}
 
 	case "DELETE":
-		k := getKey()
-		if k == "" {
+		k1,k2 := deleteKey()
+		if k1 == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if err := s.store.Delete(k); err != nil {
+		if err := s.store.Delete(k1,k2); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		s.store.Delete(k)
+		s.store.Delete(k1,k2)
 
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
